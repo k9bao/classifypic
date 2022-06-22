@@ -1,151 +1,77 @@
 import os
 import shutil
 import argparse
-from process_video import get_video_time
-from process_picture import get_picture_time
+from py_utils.src.av.probe import AVProp
+from py_utils.src.av.av_common import (
+    video_ext,
+    pic_ext,
+)
+from py_utils.src.av.pic_opt import get_pic_time
+from py_utils.src.fs.dir import (
+    get_all_files,
+    del_assign_file,
+    del_empty_dir,
+)
 
 
-video_exts = [
-    "vob",
-    "ifo",
-    "mpg",
-    "mpeg",
-    "dat",
-    "mp4",
-    "3gp",
-    "mov",
-    "rm",
-    "ram",
-    "rmvb",
-    "wmv",
-    "asf",
-    "avi",
-    "asx",
-]
-picture_exts = [
-    "bmp",
-    "jpg",
-    "png",
-    "tif",
-    "gif",
-    "pcx",
-    "tga",
-    "exif",
-    "fpx",
-    "svg",
-    "psd",
-    "cdr",
-    "pcd",
-    "dxf",
-    "ufo",
-    "eps",
-    "ai",
-    "raw",
-    "WMF",
-    "webp",
-]
+def get_video_time(vidopath):
+    prop = AVProp(vidopath)
+    return prop.get_create_time()
 
 
-# 功能：遍历指定目录下所有的图片文件，返回图片及图片拍摄时间
-# 输入：图片目录文件
-# 输出：返回二个列表：文件，文件拍摄时间
-def get_file_time(imgpath):
-    olds = []
-    news = []
-    for filename in os.listdir(imgpath):  # 遍历目录下的所有照片或视频文件
-        full_file_name = os.path.join(imgpath, filename)
-        if os.path.isfile(full_file_name):  # 只处理文件，不处理目录
-            time = "", ""
-            ext = full_file_name.split(".")[-1].lower()  # 文件后缀
-            if ext in picture_exts:  # 图片文件
-                time = get_picture_time(full_file_name)
-                print(full_file_name, ":", time)
-                olds.append(filename)
-                news.append(time)
-            elif ext in video_exts:  # 视频文件
-                time = get_video_time(full_file_name)
-                print(full_file_name, ":", time)
-                olds.append(filename)
-                news.append(time)
-            else:
-                print("do not support file type")
-    return olds, news
-
-
-# 功能：创建指定目录，如果存在跳过，不存在则创建
-# 输入：计划创建的目录
-def create_dir(dir):
-    ret = os.path.exists(dir)
-    if not ret:
-        os.makedirs(dir)
+# 输出：返回视频或图片拍摄时间
+def get_file_time(filename):
+    ext = os.path.splitext(filename)[-1].lower()  # 文件后缀
+    if ext in pic_ext:  # 图片文件
+        return get_pic_time(filename)
+    elif ext in video_ext:  # 视频文件
+        return get_video_time(filename)
     else:
-        pass
+        print("do not support file type", ext, filename)
+    return ""
 
 
-# 存放归档文件的所有目录，包含各级子目录
-def get_all_dirs(dir):
-    imgPaths = []  # 存放归档文件的所有目录，包含各级子目录
-    imgPaths.append(srcDir)
-    for parent, dirnames, filenames in os.walk(srcDir, followlinks=True):
-        for dirname in dirnames:
-            print("文件名：%s" % parent + "\\" + dirname)
-            imgPaths.append(parent + "\\" + dirname)
-    imgPaths.sort(reverse=True)
-    return imgPaths
+def process_pic(src_dir, dst_dir):
+    if src_dir == dst_dir:
+        print("src == dst", src_dir, dst_dir)
+        return
+    os.makedirs(dst_dir, exist_ok=True)
+    abs_filenames = get_all_files(src_dir)
+    for abs_filename in abs_filenames:
+        create_time = get_file_time(abs_filename)  # 获取目录下所有的照片列表
+        if create_time == "":
+            print("not find time", abs_filename)
+            continue
+        year = create_time[0:4]
+        mounth = create_time[4:6]
+        new_dir = os.path.join(dst_dir, year, mounth)
+        os.makedirs(new_dir, exist_ok=True)
+        dst_filename = os.path.join(new_dir, os.path.basename(abs_filename))
+        if not os.path.exists(dst_filename):
+            shutil.move(abs_filename, dst_filename)
+        elif os.path.isfile(dst_filename):
+            if os.path.getsize(abs_filename) == os.path.getsize(dst_filename):
+                os.remove(abs_filename)
+            else:
+                print("file name same,but not same file")
+                shutil.move(abs_filename, os.path.join(new_dir, "same_" + abs_filename))
+        else:
+            print("same dir name is exist.")
 
 
 # 测试执行
-# python3 "D:\\life\\srcDir" "D:\\life\\dstDir" ""D:\\life\\dstTmp"
+# python3 main.py "D:\\life\\srcDir" "D:\\life\\dstDir"
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("src", type=str, help="src dir")  # 相册归档目录
     parser.add_argument("dst", type=str, help="dst dir")  # 无法获取照片或视频时间的归档目录
-    parser.add_argument("tmp", type=str, help="other dir")  # 准备归档的目录，支持递归查找
 
     # parser.add_argument("-l", "--limit", type=int, default=5000, help="db limit")
     args = parser.parse_args()
     print("args.src: ", args.src)
     print("args.dst: ", args.dst)
-    print("args.tmp: ", args.tmp)
     # print("args.fun: ", args.limit)
+    process_pic(args.src, args.dst)
 
-    srcDir = args.src
-    dstDir = args.dst
-    dstDirOther = args.tmp
-
-    create_dir(dstDirOther)
-    imgDirs = get_all_dirs(srcDir)
-    for imgDir in imgDirs:
-        if not os.path.isdir(imgDir):
-            continue
-        filelist, timelist = get_file_time(imgDir)  # 获取目录下所有的照片列表
-        for index, fileName in enumerate(filelist):
-            if timelist[index] == "":
-                print("not find time", fileName)
-                continue
-            year = timelist[index][0:4]
-            mounth = timelist[index][4:6]
-            newImgDir = os.path.join(dstDir, year, mounth)
-            create_dir(newImgDir)
-            oldAbsFile = os.path.join(imgDir, fileName)
-            dstAbsFile = os.path.join(newImgDir, timelist[index] + "_" + fileName)
-            if imgDir == newImgDir:
-                print("srcPath == dstPath")
-                continue
-            if not os.path.exists(dstAbsFile):
-                shutil.move(oldAbsFile, dstAbsFile)
-            elif os.path.isfile(dstAbsFile):
-                if os.path.getsize(oldAbsFile) == os.path.getsize(dstAbsFile):
-                    os.remove(oldAbsFile)
-                else:
-                    print("file name same,but not same file")
-                    shutil.move(
-                        oldAbsFile,
-                        os.path.join(newImgDir, timelist[index] + "_same" + fileName),
-                    )
-            else:
-                print("same dir name is exist.")
-        if len(os.listdir(imgDir)) == 0:
-            print(imgDirs, "dir is empty")
-        else:
-            print(imgDir, "is not exist\n")
+    del_assign_file(args.src, ".DS_Store")
+    del_empty_dir(args.src)
